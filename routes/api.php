@@ -20,4 +20,5 @@ Route::middleware('auth:api')->get('/user', function (Request $request) {
 Route::get('/php-to-text','PhpToTextController@phpToText');
 Route::get('/route','RouteController@route');
 Route::get('/test','RouteController@test');
+Route::post('/json-to-markdown','JsonToMarkdownController@jsonToMarkDown');
 
