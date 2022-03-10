@@ -1,0 +1,257 @@
+{
+
+    "log": {
+
+        "access": "",
+
+        "error": "",
+
+        "loglevel": "warning"
+
+    },
+
+    "inbounds": [
+
+        {
+
+            "tag": "socks",
+
+            "port": 10808,
+
+            "listen": "0.0.0.0",
+
+            "protocol": "socks",
+
+            "sniffing": {
+
+                "enabled": true,
+
+                "destOverride": [
+
+                    "http",
+
+                    "tls"
+
+                ]
+
+            },
+
+            "settings": {
+
+                "auth": "noauth",
+
+                "udp": true,
+
+                "allowTransparent": false
+
+            }
+
+        },
+
+        {
+
+            "tag": "http",
+
+            "port": 10809,
+
+            "listen": "0.0.0.0",
+
+            "protocol": "http",
+
+            "sniffing": {
+
+                "enabled": true,
+
+                "destOverride": [
+
+                    "http",
+
+                    "tls"
+
+                ]
+
+            },
+
+            "settings": {
+
+                "udp": false,
+
+                "allowTransparent": false
+
+            }
+
+        }
+
+    ],
+
+    "outbounds": [
+
+        {
+
+            "tag": "proxy",
+
+            "protocol": "vmess",
+
+            "settings": {
+
+                "vnext": [
+
+                    {
+
+                        "address": "hk.tcpbbr.net",
+
+                        "port": 8388,
+
+                        "users": [
+
+                            {
+
+                                "id": "24e8aa94-fbee-11ea-87ad-f23c913c8d2b",
+
+                                "alterId": 64,
+
+                                "level": 0,
+
+                                "security": "aes-128-gcm"
+
+                            }
+
+                        ]
+
+                    }
+
+                ]
+
+            },
+
+            "streamSettings": {
+
+                "network": "tcp"
+
+            },
+
+            "mux": {
+
+                "enabled": false,
+
+                "concurrency": -1
+
+            }
+
+        },
+
+        {
+
+            "tag": "direct",
+
+            "protocol": "freedom",
+
+            "settings": {}
+
+        },
+
+        {
+
+            "tag": "block",
+
+            "protocol": "blackhole",
+
+            "settings": {
+
+                "response": {
+
+                    "type": "http"
+
+                }
+
+            }
+
+        }
+
+    ],
+
+    "dns": {
+
+        "servers": [
+
+            "8.8.8.8",
+
+            "8.8.4.4",
+
+            "114.114.114.114"
+
+        ]
+
+    },
+
+    "routing": {
+
+        "domainStrategy": "AsIs",
+
+        "domainMatcher": "linear",
+
+        "rules": [
+
+            {
+
+                "type": "field",
+
+                "inboundTag": [
+
+                    "api"
+
+                ],
+
+                "outboundTag": "api"
+
+            },
+
+            {
+
+                "type": "field",
+
+                "outboundTag": "proxy",
+
+                "domain": [
+
+                    "geosite:google"
+
+                ]
+
+            },
+
+            {
+
+                "type": "field",
+
+                "outboundTag": "direct",
+
+                "domain": [
+
+                    "domain:example-example.com",
+
+                    "domain:example-example2.com"
+
+                ]
+
+            },
+
+            {
+
+                "type": "field",
+
+                "outboundTag": "block",
+
+                "domain": [
+
+                    "geosite:category-ads-all"
+
+                ]
+
+            }
+
+        ]
+
+    }
+
+}

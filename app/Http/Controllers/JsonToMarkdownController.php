@@ -8,148 +8,160 @@ use Illuminate\Http\Request;
 
 class JsonToMarkdownController
 {
+
+    public array $description = [];
+
+    public int $level = 0;
+
     public function jsonToMarkDown(Request $request)
     {
         $path = "$request->path";  // 需要转换的文件路径。
-        $toPath = "$request->toPath";  // 最终要放到的位置。
-        $txtName = "$request->txtName";//文件名。
-        $json = file_get_contents($path);
-        $md = $this->form($json);
-        $a = $toPath . $txtName . time() . '.md';
-        $file = fopen($a, "x+");
-        $row = file_put_contents($a, $md);
-        fclose($file);
-        if (!empty($row)) {
-            return 'success';
-        }
-        return 'fail';
+        $json = json_decode(file_get_contents(storage_path($path)));
+        $this->recursion($json, '');
     }
 
     public array $dictionary;
 
-    public function form($json)
+    public function recursion($json, $path)
     {
-        $md = json_decode($json);
-        $newMd = "# 项目名：" . $md->info->name . "  \r\n" . "## 接口" . "  \r\n";
-        //获取字典
-        foreach ($md->item as $a => $b) {
-            foreach ($b->item as $z => $request1) {
-                if (!empty($request1->response[0]->originalRequest)) {
-                    $request1 = $request1->response[0]->originalRequest;
-                } else {
-                    $request1 = $request1->request;
-                }
-
-                if (!empty($request1->body->urlencoded)) {
-                    foreach ($request1->body->urlencoded as $y => $fields) {
-                        if (empty($this->dictionary[$fields->key])) {
-                            $this->dictionary[$fields->key] = $fields->description ?? '';
-                        }
-                    }
-                }
+        if (!empty($json->item[0])) {
+            if (empty($json->name)) {
+                $name = $json->info->name . '/';
+            } else {
+                $name = $json->name . '/';
             }
-        }
-        //未递归，只支持二级结构
-        foreach ($md->item as $k => $v) {
-            $newMd = $newMd . "### " . ($k + 1) . " " . $v->name . "  \r\n";
-            foreach ($v->item as $x => $request) {
-                $newMd = $newMd . "#### " . ($k + 1) . "." . ($x + 1) . " " . $request->name . "  \r\n";
-                if ($request->request->method == 'GET') {
-                    $newMd = $this->get($request->request, $newMd);
-                } else {
-                    $newMd = $this->post($request, $newMd);
-                }
-                $newMd = $this->response($request, $newMd);
+            $path .= $name;
+            if (!file_exists(storage_path($path))) {
+                mkdir(storage_path($path), 0777, true);
             }
+            foreach ($json->item as $v) {
+                $this->recursion($v, $path);
+            }
+        } else {
+            $this->makeMd($json, $path);
         }
-        return $newMd;
     }
 
-    public function get($request, $newMd)
+    public function makeMd($params, $path)
+    {
+        $params->name = str_replace('/', '-', $params->name);
+        file_put_contents(storage_path($path . $params->name . '.md'), $this->getApi($params));
+    }
+
+    public function getApi($params)
+    {
+        if (!empty($params->response[0]->originalRequest)) {
+            $request = $params->response[0]->originalRequest;
+        } elseif (!empty($params->request)) {
+            $request = $params->request;
+        } else {
+            return '';
+        }
+        $md = '## ' . $params->name . "\r\n";
+        $md .= "### 请求地址:\r\n";
+        $md .= "```\r\n" . $this->getUrl($request) . "\r\n```\r\n";
+        $md .= "### 请求方式: " . $request->method . "  \r\n";
+        $md .= "### 请求参数:  \r\n\r\n";
+        $md .= "|参数名|说明|必填|示例|  \r\n |---|---|---|---|  \r\n";
+        $md .= $this->getRequest($request);
+        $md .= "### 返回参数  \r\n\r\n";
+        $md .= "|参数名|说明|必填|示例|  \r\n |---|---|---|---|  \r\n";
+        $md .= $this->getResponse($params);
+        return $md;
+    }
+
+    public function getUrl($request)
     {
         if (!empty($request->url->raw)) {
             $url = $request->url->raw;
-        } else {
+        } elseif (!empty($request->url)) {
             $url = $request->url;
+        } else {
+            return '';
         }
-        $newMd = $newMd . "请求地址: " . $url . "  \r\n";
-        $newMd = $newMd . "请求方式: " . $request->method . "  \r\n";
-        $newMd = $newMd . "请求参数:  \r\n\r\n";
-        $newMd = $newMd . "|参数名|说明|必填|示例|  \r\n |---|---|---|---|  \r\n";
-        if (!empty($request->url->query)) {
-            foreach ($request->url->query as $y => $fields) {
+        return preg_replace('/\/[0-9]+/', "/{id}", $url);
+    }
+
+    public function getRequest($request)
+    {
+        $md = '';
+        if (!empty($request->method->query)) {
+            foreach ($request->url->query as $fields) {
                 if (!empty($fields->key)) {
-                    if (empty($fields->description)) {
-                        $fields->description = $this->dictionary[$fields->key] ?? '';
-                    }
-                    if ($fields->description == 'XDEBUG_SESSION_START') {
-                        continue;
-                    }
-                    $fields->description = '';
-                    $newMd = $newMd . "|" . $fields->key . "|" . $fields->description . "|是|" . $fields->value . "  \r\n";
-                    $this->dictionary[] = [$fields->key => $fields->description];
+                    $this->addData($fields->key, $fields->description ?? '', $fields->value ?? '', $md);
                 }
             }
         }
-        return $newMd;
-    }
-
-    public function post($request1, $newMd)
-    {
-        //优先读示例
-        if (!empty($request1->response[0]->originalRequest)) {
-            $request = $request1->response[0]->originalRequest;
-        } else {
-            $request = $request1->request;
-        }
-        if (!empty($request->url->raw)) {
-            $url = $request->url->raw;
-        } else {
-            $url = $request->url;
-        }
-        $newMd = $newMd . "请求地址: " . $url . "  \r\n";
-        $newMd = $newMd . "请求方式: " . $request->method . "  \r\n";
-        $newMd = $newMd . "请求参数:  \r\n\r\n";
-        $newMd = $newMd . "|参数名|说明|必填|示例|  \r\n |---|---|---|---|  \r\n";
-        if (!empty($request->body->urlencoded)) {
-            foreach ($request->body->urlencoded as $y => $fields) {
-                if (empty($fields->description)) {
-                    $fields->description = $this->dictionary[$fields->key] ?? '';
+        if (!empty($request->body)) {
+            $mode = $request->body->mode;
+            if ($mode == 'raw') {
+                $list = collect(json_decode($request->body->raw))->toArray();
+                foreach ($list as $key => $value) {
+                    $this->addData($key, '', $value, $md);
                 }
-                $newMd = $newMd . "|" . $fields->key . "|" . $fields->description . "|是|" . $fields->value . "  \r\n";
-                $this->dictionary[] = [$fields->key => $fields->description];
+            } else {
+                foreach ($request->body->$mode as $fields) {
+                    if (!empty($fields->key)) {
+                        $this->addData($fields->key, $fields->description ?? '', $fields->value ?? '', $md);
+                    }
+                }
             }
         }
-        return $newMd;
+        return $md;
     }
 
-    public function response($request1, $newMd)
+    public function addData($key, $description, $value, &$md)
     {
-        $newMd = $newMd . "返回参数  \r\n\r\n";
-        $newMd = $newMd . "|参数名|说明|必含|示例|  \r\n |---|---|---|---|  \r\n";
-        //优先读示例
-        if (!empty($request1->response[0])) {
-            $response = $request1->response[0]->body;
+        if (is_object($value)) {
+            $this->addRow($key, $description, '', $md);
+            foreach ($value as $k => $v) {
+                $this->addData($key . '.' . $k, '', $v ?? '', $md);
+            }
+        } else {
+            $this->addRow($key, $description, $value ?? '', $md);
+        }
+    }
+
+    public function addRow($key, $description, $value, &$md)
+    {
+//        $description = $this->getDescription($key, $description);
+        $md .=
+            "|" . $key .
+            "|" . json_encode($description) .
+            "|是" .
+            "|" . json_encode($value) .
+            "|  \r\n";
+//        $this->addDescription($key, $description);
+    }
+
+    public function addDescription($key, $description)
+    {
+        $this->description[$key] = $description;
+    }
+
+    public function getDescription($key, $description)
+    {
+        if (empty($description)) {
+            $this->description[$key] = $description;
+        }
+        return $description;
+    }
+
+    public function getResponse($params)
+    {
+        $md = '';
+        //读示例
+        if (!empty($params->response)) {
+            $response = $params->response[0]->body;
             $response = collect(json_decode($response))->toArray();
             if (!empty($response)) {
                 foreach ($response as $key => $value) {
-                    $description = $this->dictionary[$key] ?? '';
-                    if (is_object($value)) {
-                        $newMd = $newMd . "|" . $key  . "|" . $description . "|是|" . " " . "  \r\n";
-                        $value = collect($value)->toArray();
-                        foreach ($value as $a => $b) {
-                            if (is_object($b)) {
-                                $b = json_encode($b);
-                            }
-                            $newMd = $newMd . "|" . $key . "." . $a . "|" . $description . "|是|" . $b . "  \r\n";
-                        }
-                    } else {
-                        $newMd = $newMd . "|" . $key . "|" . $description . "|是|" . $value . "  \r\n";
-                    }
+                    $this->addData($key, '', $value, $md);
                 }
             }
+            $md .= "### 返回示例" . "\r\n" . '```json' . "\r\n" . $params->response[0]->body . '```' . "\r\n";
         }
-        return $newMd;
+        return $md;
     }
 
 }
